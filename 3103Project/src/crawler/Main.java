@@ -1,10 +1,8 @@
 package crawler;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
@@ -15,6 +13,10 @@ import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -22,8 +24,35 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 public class Main {
-
+	private static int minRelevanceScore = 1;
+	private static Map<String, List<Object>> visited = new HashMap<String, List<Object>>();
+	private static Map<String, Integer> keywords = new HashMap<String, Integer>();
+	private static ArrayList<String> toBeVisited = new ArrayList<String>();
+	
 	public static void main(String[] args) throws IOException {
+		keywords.put("findings", 0);
+		keywords.put("developing", 0);
+		toBeVisited.add("http://www.nus.edu.sg");
+		int count = 0;
+		
+		while (count < 5){
+			String uri = toBeVisited.get(0);
+			toBeVisited.remove(0);
+			
+			if (!visited.containsKey(uri)){
+				processPage(uri);
+				count ++;
+			}
+
+			if (toBeVisited.isEmpty()){
+				break;
+			}
+		}
+		
+		// Add a breakpoint here and see what's in visited, keywords, and toBeVisited
+		System.out.println("Done");
+		
+		/*
 		File dir = new File(".");
 		String loc = dir.getCanonicalPath() + File.separator + "visited.txt";
 		FileWriter fstream = new FileWriter(loc, true);
@@ -39,6 +68,33 @@ public class Main {
 		if (file.delete()) {
 
 		}
+		*/
+		/* CODE TO WRITE DATA TO FILE
+		Map<String, Integer> map = new HashMap();
+		map.put("1",new Integer(2));
+        map.put("2",new Integer(4));
+        map.put("3",new Integer(6));
+        
+        System.out.println("Original map: ");
+        System.out.println(map);
+        
+        FileOutputStream fos = new FileOutputStream("map.ser");
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(map);
+        oos.close();
+
+        FileInputStream fis = new FileInputStream("map.ser");
+        ObjectInputStream ois = new ObjectInputStream(fis);
+        Map<String, Integer> anotherMap;
+		try {
+			anotherMap = (Map) ois.readObject();
+			System.out.println(anotherMap);
+			ois.close();
+		} catch (ClassNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		*/
 	}
 
 	// Check if a url is contained in the records
@@ -62,18 +118,18 @@ public class Main {
 		return false;
 	}
 
-	public static Document httpGet(String url) throws IOException {
+	public static String httpGet(String url) throws IOException {
 		URI uri;
 		String path;
 		Socket sock = null;
 		StringBuilder sb = new StringBuilder();
-		
-		try{
+
+		try {
 			uri = new URI(url);
-		} catch (URISyntaxException e){
+		} catch (URISyntaxException e) {
 			return null;
 		}
-		
+
 		// URL pre-processing
 		if (!uri.getScheme().equalsIgnoreCase("http")) {
 			return null;
@@ -83,7 +139,7 @@ public class Main {
 		} else {
 			path = uri.getPath();
 		}
-		
+
 		try {
 			// Create the socket to http default port (80)
 			sock = new Socket(uri.getHost(), 80);
@@ -118,17 +174,18 @@ public class Main {
 					break;
 				}
 			}
-			
+
 			// Receive the rest of response headers and contents
-			if (httpStatus.equals("HTTP/1.1 200 OK")){
+			if (httpStatus.equals("HTTP/1.1 200 OK")) {
 				// Content length is specified, just read for that amount
-				if (contentLength != 0){
-					while (contentLength > 0){
+				if (contentLength != 0) {
+					while (contentLength > 0) {
 						sb.append(br.read());
 						contentLength--;
 					}
 				} else {
-				// Content length not specified, attempt to read until end of stream or timeout occurs
+					// Content length not specified, attempt to read until end
+					// of stream or timeout occurs
 					while ((s = br.readLine()) != null) {
 						sb.append(s);
 					}
@@ -143,56 +200,60 @@ public class Main {
 		} catch (SocketException e) {
 			// Underlying TCP error
 			return null;
-		} catch (SocketTimeoutException e){
-			// Do nothing and let jsoup parse whatever data that has been received
+		} catch (SocketTimeoutException e) {
+			// Do nothing and return whatever data that has been received
 		} finally {
-			if (sock != null){
+			if (sock != null) {
 				sock.close();
 			}
 		}
-		return Jsoup.parse(sb.toString());
+		return sb.toString();
 	}
 
-	public static void processPage(String URL) throws IOException {
-
-		File dir = new File(".");
-		String loc = dir.getCanonicalPath() + File.separator + "visited.txt";
-
-		File file = new File(loc);
-
-		// Check if url already visited
-		boolean e = checkExist(URL, file);
-		if (!e) {
-			System.out.println("Visiting :  " + URL);
-			// insert to visited records
-			FileWriter fstream = new FileWriter(loc, true);
-			BufferedWriter out = new BufferedWriter(fstream);
-			out.write(URL);
-			out.newLine();
-			out.close();
-
-			Document doc = null;
-			try {
-				doc = httpGet(URL);
-			} catch (IOException e1) {
-				e1.printStackTrace();
-				return;
-			}
-
-			// Get all urls (hrefs) that exists in the document
-			if (doc != null) {
-				Elements questions = doc.select("a[href]");
-				for (Element link : questions) {
-					processPage(link.attr("abs:href"));
-				}
-			} else {
-				// TODO write it to file instead
-				System.out.println("Invalid: " + URL);
-			}
+	public static void processPage(String URL) {
+		String page = null;
+		long responseTime = -1;
+		int score = 0;
+		Document doc;
+		ArrayList<String> matchedKeywords = new ArrayList<String>();
+		
+		try {
+			long start_t = System.currentTimeMillis();
+			page = httpGet(URL);
+			responseTime = System.currentTimeMillis() - start_t;
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		if (page != null){
+			doc = Jsoup.parse(page);
 		} else {
-			// url already visited, do nothing
+			System.out.println("Invalid: " + URL);
 			return;
 		}
 
+		for (String word : doc.text().split(" ")){
+			if (keywords.containsKey(word.toLowerCase())){
+				score ++;
+				matchedKeywords.add(word.toLowerCase());
+				keywords.merge(word.toLowerCase(), 1, Integer::sum);
+			}
+		}
+		
+		ArrayList<Object> urlStatistics = new ArrayList<Object>();
+		urlStatistics.add(responseTime);
+		urlStatistics.add(matchedKeywords);
+		visited.put(URL, urlStatistics);
+		
+		if (score >= minRelevanceScore){
+			// Get all urls (hrefs) that exists in the document
+			Elements links = doc.select("a[href]");
+			for (Element link : links){
+				toBeVisited.add(link.attr("abs:href"));
+			}
+		} else {
+			// Since this page isn't relevant, don't append links to the main queue
+		}
 	}
 }
