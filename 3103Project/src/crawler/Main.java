@@ -1,7 +1,6 @@
 package crawler;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -19,7 +18,6 @@ import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,7 +30,12 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 public class Main {
-	private static int minRelevanceScore = 1;
+	private static final int SOCKET_TIMEOUT_MILLIS = 5000;
+	private static final int CRAWL_PERIOD_MILLIS = 2000;
+	private static final int MAX_CRAWLED_PAGES = 20;
+	private static final int MAX_ACTIVE_THREADS = 5;
+	private static final int MIN_RELEVANCE_SCORE = 5;
+	
 	private static ConcurrentHashMap<String, List<Object>> visited;
 	private static ConcurrentHashMap<String, Integer> keywords;
 	private static PriorityBlockingQueue<RankableURI> toBeVisited;
@@ -54,13 +57,14 @@ public class Main {
 			System.exit(0);
 		}
 		
-		ExecutorService exec = Executors.newFixedThreadPool(5);
+		ExecutorService exec = Executors.newFixedThreadPool(MAX_ACTIVE_THREADS);
 		
+		// Wait for all threads to complete and save all data before shutdown
 		Runtime.getRuntime().addShutdownHook(new Thread(){
 			public void run(){
 				exec.shutdown();
 				try {
-					if (exec.awaitTermination(10, TimeUnit.SECONDS)){
+					if (exec.awaitTermination(2*SOCKET_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)){
 						System.out.println("Saving files...");
 						saveObjects(visited, "visited");
 						saveObjects(keywords, "keywords");
@@ -74,7 +78,7 @@ public class Main {
 			}
 		});
 		
-		while (visited.size() < 5){
+		while (visited.size() < MAX_CRAWLED_PAGES){
 			RankableURI rankedURI = toBeVisited.poll();
 			
 			if (rankedURI != null){
@@ -86,40 +90,27 @@ public class Main {
 					});			
 				}
 			} else if (Thread.activeCount() == 1){
-				exec.shutdown();
-				try {
-					if (exec.awaitTermination(10, TimeUnit.SECONDS)){
-						break;
-					}
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
+				// No more urls in queue and only main thread running
+				// Implies that the crawler should terminate
+				break;
+			}
+			
+			try {
+				Thread.sleep(CRAWL_PERIOD_MILLIS);
+			} catch (InterruptedException e) {
+				break;
 			}
 		}
-		// Add a breakpoint here and see what's in visited, keywords, and toBeVisited
-		System.out.println("Done");
-	}
-
-	// Check if a url is contained in the records
-	public static boolean checkExist(String s, File fin) throws IOException {
-
-		FileInputStream fis = new FileInputStream(fin);
-		BufferedReader in = new BufferedReader(new InputStreamReader(fis));
-
-		String aLine = null;
-		while ((aLine = in.readLine()) != null) {
-			if (aLine.trim().contains(s)) {
-				// System.out.println("contains " + s);
-				in.close();
-				fis.close();
-				return true;
+		
+		exec.shutdown();
+		try {
+			if (exec.awaitTermination(2*SOCKET_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)){
+				System.out.println("Done");
 			}
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
 		}
-		in.close();
-		fis.close();
-
-		return false;
 	}
 
 	public static String httpGet(String url) throws IOException {
@@ -147,7 +138,7 @@ public class Main {
 		try {
 			// Create the socket to http default port (80)
 			sock = new Socket(uri.getHost(), 80);
-			sock.setSoTimeout(5000); // 5 seconds timeout
+			sock.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
 			PrintWriter pw = new PrintWriter(sock.getOutputStream());
 
 			// Send raw http commands to server
@@ -227,15 +218,15 @@ public class Main {
 			page = httpGet(URL);
 			responseTime = System.currentTimeMillis() - start_t;
 		} catch (IOException e) {
-			visited.put(URL, null);
+			visited.put(URL, new ArrayList<Object>());
 			System.out.println("Error: "+URL);
 			return;
 		}
 		
 		if (page != null){
-			doc = Jsoup.parse(page);
+			doc = Jsoup.parse(page, URL);
 		} else {
-			visited.put(URL, null);
+			visited.put(URL, new ArrayList<Object>());
 			System.out.println("Error: "+URL);
 			return;
 		}
@@ -255,7 +246,7 @@ public class Main {
 		urlStatistics.add(matchedKeywords);
 		visited.put(URL, urlStatistics);
 		
-		if (score >= minRelevanceScore){
+		if (score >= MIN_RELEVANCE_SCORE){
 			// Get all urls (hrefs) that exists in the document
 			Elements links = doc.select("a[href]");
 			for (Element link : links){
