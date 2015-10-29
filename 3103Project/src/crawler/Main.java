@@ -43,7 +43,7 @@ public class Main {
 				processPage(uri);
 				count ++;
 			}
-
+						
 			if (toBeVisited.isEmpty()){
 				break;
 			}
@@ -222,14 +222,16 @@ public class Main {
 			page = httpGet(URL);
 			responseTime = System.currentTimeMillis() - start_t;
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			visited.put(URL, null);
+			System.out.println("Error: "+URL);
+			return;
 		}
 		
 		if (page != null){
 			doc = Jsoup.parse(page);
 		} else {
-			System.out.println("Invalid: " + URL);
+			visited.put(URL, null);
+			System.out.println("Error: "+URL);
 			return;
 		}
 
