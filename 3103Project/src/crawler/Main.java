@@ -3,8 +3,12 @@ package crawler;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.PrintWriter;
 import java.net.ConnectException;
 import java.net.Socket;
@@ -29,15 +33,46 @@ import org.jsoup.select.Elements;
 
 public class Main {
 	private static int minRelevanceScore = 1;
-	private static Map<String, List<Object>> visited = new ConcurrentHashMap<String, List<Object>>();
-	private static Map<String, Integer> keywords = new ConcurrentHashMap<String, Integer>();
-	private static PriorityBlockingQueue<RankableURI> toBeVisited = new PriorityBlockingQueue<RankableURI>();
+	private static ConcurrentHashMap<String, List<Object>> visited;
+	private static ConcurrentHashMap<String, Integer> keywords;
+	private static PriorityBlockingQueue<RankableURI> toBeVisited;
 	
 	public static void main(String[] args) throws IOException {
-		keywords.put("java", 0);
-		keywords.put("code", 0);
-		toBeVisited.put(new RankableURI(0,"http://www.tutorialspoint.com"));
+		// Load all configuration and data
+		System.out.println("Loading files...");
+		visited = loadObjects("visited");
+		keywords = loadObjects("keywords");
+		toBeVisited = loadObjects("toBeVisited");
+		System.out.println("Loaded files");
+		
+		if (visited == null){
+			visited = new ConcurrentHashMap<String, List<Object>>();
+		}
+		
+		if (keywords == null || toBeVisited == null){
+			System.out.println("Error loading files!");
+			System.exit(0);
+		}
+		
 		ExecutorService exec = Executors.newFixedThreadPool(5);
+		
+		Runtime.getRuntime().addShutdownHook(new Thread(){
+			public void run(){
+				exec.shutdown();
+				try {
+					if (exec.awaitTermination(10, TimeUnit.SECONDS)){
+						System.out.println("Saving files...");
+						saveObjects(visited, "visited");
+						saveObjects(keywords, "keywords");
+						saveObjects(toBeVisited, "toBeVisited");
+						System.out.println("Saved files");
+					}
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+		});
 		
 		while (visited.size() < 5){
 			RankableURI rankedURI = toBeVisited.poll();
@@ -64,50 +99,6 @@ public class Main {
 		}
 		// Add a breakpoint here and see what's in visited, keywords, and toBeVisited
 		System.out.println("Done");
-		
-		/*
-		File dir = new File(".");
-		String loc = dir.getCanonicalPath() + File.separator + "visited.txt";
-		FileWriter fstream = new FileWriter(loc, true);
-		BufferedWriter out = new BufferedWriter(fstream);
-		out.newLine();
-		out.close();
-
-		// Start recursive crawling
-		processPage("http://www.nus.edu.sg");
-
-		File file = new File(loc);
-
-		if (file.delete()) {
-
-		}
-		*/
-		/* CODE TO WRITE DATA TO FILE
-		Map<String, Integer> map = new HashMap();
-		map.put("1",new Integer(2));
-        map.put("2",new Integer(4));
-        map.put("3",new Integer(6));
-        
-        System.out.println("Original map: ");
-        System.out.println(map);
-        
-        FileOutputStream fos = new FileOutputStream("map.ser");
-        ObjectOutputStream oos = new ObjectOutputStream(fos);
-        oos.writeObject(map);
-        oos.close();
-
-        FileInputStream fis = new FileInputStream("map.ser");
-        ObjectInputStream ois = new ObjectInputStream(fis);
-        Map<String, Integer> anotherMap;
-		try {
-			anotherMap = (Map) ois.readObject();
-			System.out.println(anotherMap);
-			ois.close();
-		} catch (ClassNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
 	}
 
 	// Check if a url is contained in the records
@@ -231,6 +222,7 @@ public class Main {
 		ArrayList<String> matchedKeywords = new ArrayList<String>();
 		
 		try {
+			System.out.println("Visiting: "+URL);
 			long start_t = System.currentTimeMillis();
 			page = httpGet(URL);
 			responseTime = System.currentTimeMillis() - start_t;
@@ -251,7 +243,9 @@ public class Main {
 		for (String word : doc.text().split(" ")){
 			if (keywords.containsKey(word.toLowerCase())){
 				score ++;
-				matchedKeywords.add(word.toLowerCase());
+				if (!matchedKeywords.contains(word.toLowerCase())){
+					matchedKeywords.add(word.toLowerCase());
+				}
 				keywords.merge(word.toLowerCase(), 1, Integer::sum);
 			}
 		}
@@ -270,6 +264,55 @@ public class Main {
 			}
 		} else {
 			// Since this page isn't relevant, don't append links to the main queue
+		}
+	}
+	
+	public static <T> T loadObjects (String filename) {
+		T ret = null;
+		FileInputStream fis = null; 
+		ObjectInputStream ois = null;
+		try {
+	        fis = new FileInputStream(filename);
+	        ois = new ObjectInputStream(fis);
+	        ret = (T) ois.readObject();
+		} catch (FileNotFoundException e){
+			
+		} catch (IOException e){
+			
+		} catch (ClassNotFoundException e){
+			
+		} finally {
+			if (ois!=null){
+				try {
+					ois.close();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+		}
+		return ret;
+	}
+	public static <T> void saveObjects (T obj, String filename) {
+		FileOutputStream fos = null; 
+		ObjectOutputStream oos = null;
+		try {
+	        fos = new FileOutputStream(filename);
+	        oos = new ObjectOutputStream(fos);
+	        oos.writeObject(obj);
+		} catch (FileNotFoundException e){
+			
+		} catch (IOException e){
+			
+		} finally {
+			if (oos!=null){
+				try {
+					oos.close();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
 		}
 	}
 }

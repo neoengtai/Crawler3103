@@ -1,6 +1,13 @@
 package crawler;
 
-public class RankableURI implements Comparable<RankableURI>{
+import java.io.Serializable;
+
+public class RankableURI implements Comparable<RankableURI>, Serializable{
+
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
 	private int rank;
 	private String uri;
 	
