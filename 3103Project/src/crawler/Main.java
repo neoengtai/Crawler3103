@@ -14,10 +14,13 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -28,32 +31,37 @@ public class Main {
 	private static int minRelevanceScore = 1;
 	private static Map<String, List<Object>> visited = new ConcurrentHashMap<String, List<Object>>();
 	private static Map<String, Integer> keywords = new ConcurrentHashMap<String, Integer>();
-	private static ArrayList<String> toBeVisited = new ArrayList<String>();
+	private static PriorityBlockingQueue<RankableURI> toBeVisited = new PriorityBlockingQueue<RankableURI>();
 	
 	public static void main(String[] args) throws IOException {
-		keywords.put("findings", 0);
-		keywords.put("developing", 0);
-		toBeVisited.add("http://www.nus.edu.sg");
-		int count = 0;
+		keywords.put("java", 0);
+		keywords.put("code", 0);
+		toBeVisited.put(new RankableURI(0,"http://www.tutorialspoint.com"));
+		ExecutorService exec = Executors.newFixedThreadPool(5);
 		
-		while (count < 5){
-			String uri = toBeVisited.get(0);
-			toBeVisited.remove(0);
+		while (visited.size() < 5){
+			RankableURI rankedURI = toBeVisited.poll();
 			
-			Runnable task = () -> {
-				processPage(uri);
-			};
-			
-			if (!visited.containsKey(uri)){
-				task.run();
-				count ++;
-			}
-						
-			if (toBeVisited.isEmpty()){
-				break;
+			if (rankedURI != null){
+				String uri = rankedURI.getURI();
+				
+				if (!visited.containsKey(uri)){
+					exec.submit(()->{
+						processPage(uri);
+					});			
+				}
+			} else if (Thread.activeCount() == 1){
+				exec.shutdown();
+				try {
+					if (exec.awaitTermination(10, TimeUnit.SECONDS)){
+						break;
+					}
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
 			}
 		}
-		
 		// Add a breakpoint here and see what's in visited, keywords, and toBeVisited
 		System.out.println("Done");
 		
@@ -185,7 +193,7 @@ public class Main {
 				// Content length is specified, just read for that amount
 				if (contentLength != 0) {
 					while (contentLength > 0) {
-						sb.append(br.read());
+						sb.append((char)br.read());
 						contentLength--;
 					}
 				} else {
@@ -257,7 +265,8 @@ public class Main {
 			// Get all urls (hrefs) that exists in the document
 			Elements links = doc.select("a[href]");
 			for (Element link : links){
-				toBeVisited.add(link.attr("abs:href"));
+				RankableURI rankedURI = new RankableURI(score,link.attr("abs:href"));
+				toBeVisited.put(rankedURI);
 			}
 		} else {
 			// Since this page isn't relevant, don't append links to the main queue
