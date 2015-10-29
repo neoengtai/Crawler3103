@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -25,8 +26,8 @@ import org.jsoup.select.Elements;
 
 public class Main {
 	private static int minRelevanceScore = 1;
-	private static Map<String, List<Object>> visited = new HashMap<String, List<Object>>();
-	private static Map<String, Integer> keywords = new HashMap<String, Integer>();
+	private static Map<String, List<Object>> visited = new ConcurrentHashMap<String, List<Object>>();
+	private static Map<String, Integer> keywords = new ConcurrentHashMap<String, Integer>();
 	private static ArrayList<String> toBeVisited = new ArrayList<String>();
 	
 	public static void main(String[] args) throws IOException {
@@ -39,8 +40,12 @@ public class Main {
 			String uri = toBeVisited.get(0);
 			toBeVisited.remove(0);
 			
-			if (!visited.containsKey(uri)){
+			Runnable task = () -> {
 				processPage(uri);
+			};
+			
+			if (!visited.containsKey(uri)){
+				task.run();
 				count ++;
 			}
 						
