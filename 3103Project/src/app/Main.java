@@ -7,6 +7,8 @@ import java.io.ObjectInputStream;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map.Entry;
+import java.util.PriorityQueue;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,6 +54,8 @@ public class Main {
 				viewAllPending(toBeVisited);
 				break;
 			case 4:
+				System.out.println("Enter query: ");
+				searchByKeywords(visited, sc.nextLine());
 				break;
 			case 5:
 				System.out.println("Bye");
@@ -131,6 +135,40 @@ public class Main {
 				option = "q";
 			}
 		} while (!option.equalsIgnoreCase("q"));
+	}
+	
+	public static void searchByKeywords(ConcurrentHashMap<String, List<Object>> visited, String query){
+		String[] keywords = query.toLowerCase().split(" ");
+		PriorityQueue<RankableURI> result = new PriorityQueue<RankableURI>();
+		
+		for (Entry<String,List<Object>> entry : visited.entrySet()){
+			String key = entry.getKey();
+			List<Object> value = entry.getValue();
+			
+			if (value.size()!=0) {
+				ArrayList<String> matchedKeywords = (ArrayList<String>) value.get(1);
+				int score = 0;
+				
+				for (String keyword : keywords){
+					if (matchedKeywords.contains(keyword)){
+						score ++;
+					}
+				}
+				
+				if (score != 0){
+					RankableURI found = new RankableURI(score, key);
+					result.add(found);
+				}
+			}			
+		}
+		
+		if (result.size() != 0){
+			for (RankableURI uri : result){
+				System.out.println(uri.getURI());
+			}
+		} else {
+			System.out.println("No result found.");
+		}
 	}
 
 	public static <T> T loadObjects(String filename) {
